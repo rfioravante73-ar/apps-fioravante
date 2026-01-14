@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Rómulo Fioravante App</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            /* Variables de Color */
+            --primary: #1e40af;       /* Azul Fuerte */
+            --secondary: #60a5fa;     /* Azul Claro */
+            --bg-gradient: linear-gradient(180deg, #f0f9ff 0%, #bfdbfe 100%);
+            --glass-bg: rgba(255, 255, 255, 0.85);
+            --glass-border: rgba(255, 255, 255, 0.6);
+            --text-main: #1e293b;
+            --text-sub: #64748b;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+        }
+
+        body {
+            background: var(--bg-gradient);
+            height: 100vh; /* Altura exacta de la pantalla */
+            width: 100vw;
+            overflow: hidden; /* PROHIBIDO EL SCROLL */
+            display: flex;
+            flex-direction: column;
+            padding: 1vh 1vw; /* Márgenes mínimos relativos */
+            color: var(--text-main);
+        }
+
+        /* --- Header Compacto (5% altura) --- */
+        header {
+            height: 8vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+        }
+
+        h1 {
+            font-size: 2.5vh; /* Tamaño relativo a la altura de pantalla */
+            color: var(--primary);
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .subtitle {
+            font-size: 1.5vh;
+            color: var(--text-sub);
+        }
+
+        /* --- Layout Principal (90% altura) --- */
+        main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5vh; /* Espacio vertical entre los dos contenedores */
+            padding: 1vh 0;
+        }
+
+        /* Contenedores Flexibles */
+        .row-container {
+            display: flex;
+            gap: 1.5vw; /* Espacio horizontal entre tarjetas */
+            width: 100%;
+        }
+
+        /* Fila Superior: 3 Módulos -> Ocupa un poco más de espacio (55%) para destacar */
+        #top-row {
+            flex: 55; 
+        }
+
+        /* Fila Inferior: 4 Módulos -> Ocupa el resto (45%) */
+        #bottom-row {
+            flex: 45;
+        }
+
+        /* --- Estilo de las Tarjetas --- */
+        .card {
+            flex: 1; /* Todas las tarjetas ocupan el mismo ancho en su fila */
+            background: var(--glass-bg);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            padding: 10px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .card:hover {
+            transform: scale(1.02);
+            background: #ffffff;
+            border-color: var(--secondary);
+            box-shadow: 0 10px 15px rgba(30, 64, 175, 0.15);
+            z-index: 10;
+        }
+
+        /* Iconos y Textos Responsivos (vh/vw) */
+        .icon-box {
+            font-size: 4vh; /* El icono escala según la altura de la pantalla */
+            color: var(--primary);
+            margin-bottom: 1.5vh;
+            transition: transform 0.3s;
+        }
+
+        .card:hover .icon-box {
+            transform: translateY(-5px);
+            color: var(--secondary);
+        }
+
+        .card h3 {
+            font-size: 2vh;
+            font-weight: 700;
+            color: var(--text-main);
+            line-height: 1.2;
+        }
+
+        .card-number {
+            position: absolute;
+            top: 10px;
+            right: 15px;
+            font-size: 4vh;
+            opacity: 0.05;
+            font-weight: 900;
+        }
+
+        /* --- Footer (Muy pequeño) --- */
+        footer {
+            height: 2vh;
+            text-align: center;
+            font-size: 1.2vh;
+            color: var(--text-sub);
+            opacity: 0.7;
+        }
+
+        /* --- MODAL (Aquí SI permitimos scroll interno) --- */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(15, 23, 42, 0.7);
+            backdrop-filter: blur(5px);
+            z-index: 1000;
+            display: none;
+            justify-content: center;
+            align-items: center;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .modal-overlay.active {
+            opacity: 1;
+        }
+
+        .modal {
+            background: white;
+            width: 90%;
+            max-width: 600px;
+            max-height: 80vh; /* Máximo 80% de la pantalla */
+            border-radius: 15px;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 25px 50px rgba(0,0,0,0.25);
+            transform: scale(0.9);
+            transition: transform 0.3s;
+        }
+
+        .modal-overlay.active .modal {
+            transform: scale(1);
+        }
+
+        .modal-header {
+            padding: 20px;
+            background: var(--primary);
+            color: white;
+            border-radius: 15px 15px 0 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            color: white;
+            font-size: 1.5rem;
+            cursor: pointer;
+        }
+
+        .modal-body {
+            padding: 20px;
+            overflow-y: auto; /* SCROLL SOLO DENTRO DEL MODAL */
+        }
+
+        .link-item {
+            display: block;
+            padding: 12px;
+            margin-bottom: 8px;
+            background: #f1f5f9;
+            text-decoration: none;
+            color: var(--text-main);
+            border-radius: 8px;
+            border-left: 4px solid var(--secondary);
+            font-size: 0.95rem;
+            transition: background 0.2s;
+        }
+
+        .link-item:hover {
+            background: #e2e8f0;
+            padding-left: 15px;
+        }
+
+        .section-title {
+            color: var(--primary);
+            font-weight: bold;
+            margin: 15px 0 5px 0;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            border-bottom: 1px solid #ddd;
+        }
+
+        /* --- Ajustes para Móviles (Pantalla Vertical) --- */
+        @media (max-width: 768px) {
+            h1 { font-size: 1.2rem; }
+            .row-container {
+                flex-wrap: wrap; /* Permitir que se acomoden si es necesario */
+            }
+            /* En móvil, forzamos rejilla 2x2 para que se vea todo */
+            #top-row .card { min-width: 30%; } /* 3 en línea apretados o cambiar lógica */
+            
+            /* Ajuste radical para móviles para que quepa todo sin scroll */
+            .card h3 { font-size: 1.5vh; }
+            .icon-box { font-size: 3vh; margin-bottom: 0.5vh; }
+            .card { padding: 5px; }
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>App Web SPA 2025-2026</h1>
+        <p class="subtitle">Repositorio de Aplicaciones | Rómulo Fioravante</p>
+    </header>
+
+    <main>
+        <section id="top-row" class="row-container">
+            </section>
+
+        <section id="bottom-row" class="row-container">
+            </section>
+    </main>
+
+    <footer>
+        &copy; 2025-2026 Rómulo Fioravante
+    </footer>
+
+    <div class="modal-overlay" id="modalOverlay" onclick="closeModal(event)">
+        <div class="modal" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h3 id="modalTitle">Título</h3>
+                <button class="close-btn" onclick="closeModalDirect()">&times;</button>
+            </div>
+            <div class="modal-body" id="modalBody">
+                </div>
+        </div>
+    </div>
+
+    <script>
+        // DATOS
+        const modules = [
+            // --- GRUPO SUPERIOR (Indices 0, 1, 2) ---
+            {
+                title: "Laboral",
+                icon: "fa-briefcase",
+                links: [
+                    { name: "Sistema Defensor-Secretarios", url: "https://sistemadigital.github.io/defensor-secretarios/" },
+                    { name: "Sistema Empleados", url: "https://sistemadigital.github.io/empleados/" },
+                    { name: "Sistema Operador y Atención", url: "https://defensoria6.github.io/operador-defensoria/" },
+                    { name: "Control Inasistencia-Licencias", url: "https://defensorialocal-seis.github.io/faltas-licencias/" },
+                    { name: "Estadística Digital", url: "https://defensoria6.github.io/reporte/" },
+                    { name: "Clientes y Turnos (Público)", url: "https://sistemadigital.github.io/consultas-turnos/clientes" },
+                    { name: "Control Turnos (Interno)", url: "https://sistemadigital.github.io/consultas-turnos/interno" },
+                    { name: "Asignación Clientes", url: "https://sistemadigital.github.io/consultas-turnos/asignados" },
+                    { name: "Resguardo de Datos", url: "https://sistemadigital.github.io/resguardo/" },
+                    { name: "Causas Asignadas", url: "https://admindefensoria6.github.io/rf-causas/" },
+                    { isHeader: true, name: "Secretarios" },
+                    { name: "Dra. Riveros", url: "https://sistema-secretarios.github.io/dra-riveros/" },
+                    { name: "Dra. Corrales", url: "https://sistema-secretarios.github.io/dra-corrales/" },
+                    { name: "Dr. Magnani", url: "https://sistema-secretarios.github.io/dr-magnani/" }
+                ]
+            },
+            {
+                title: "Finanza Hogar",
+                icon: "fa-chart-line",
+                links: [{ name: "Ir a Finanzas", url: "https://rfioravante73-ar.github.io/finanzas/" }]
+            },
+            {
+                title: "Despensa Hogar",
+                icon: "fa-cart-shopping",
+                links: [{ name: "Ir a Despensa", url: "https://rfioravante73-ar.github.io/stock-hogar/" }]
+            },
+
+            // --- GRUPO INFERIOR (Indices 3, 4, 5, 6) ---
+            {
+                title: "Farmacia Hogar",
+                icon: "fa-capsules",
+                links: [{ name: "Ir a Farmacia", url: "https://rfioravante73-ar.github.io/medicamentos-hogar/" }]
+            },
+            {
+                title: "Biblia",
+                icon: "fa-book-bible",
+                links: [{ name: "Ir a Cronos", url: "https://rfioravante73-ar.github.io/cronos/" }]
+            },
+            {
+                title: "Astronomía",
+                icon: "fa-moon",
+                links: [{ name: "Ir a Astroamigos", url: "https://rfioravante73-ar.github.io/astroamigos-misiones/" }]
+            },
+            {
+                title: "Genealogía",
+                icon: "fa-tree",
+                links: [{ name: "Ir a Familia", url: "https://rfioravante73-ar.github.io/familiia/" }]
+            }
+        ];
+
+        // RENDERIZADO
+        const topRow = document.getElementById('top-row');
+        const bottomRow = document.getElementById('bottom-row');
+
+        function createCard(mod, index) {
+            const card = document.createElement('div');
+            card.className = 'card';
+            card.onclick = () => openModal(mod);
+            card.innerHTML = `
+                <div class="card-number">${index + 1}</div>
+                <i class="fas ${mod.icon} icon-box"></i>
+                <h3>${mod.title}</h3>
+            `;
+            return card;
+        }
+
+        function init() {
+            // Renderizar Top (Indices 0, 1, 2)
+            for(let i = 0; i < 3; i++) {
+                topRow.appendChild(createCard(modules[i], i));
+            }
+
+            // Renderizar Bottom (Indices 3, 4, 5, 6)
+            for(let i = 3; i < modules.length; i++) {
+                bottomRow.appendChild(createCard(modules[i], i));
+            }
+        }
+
+        // LOGICA MODAL
+        const modalOverlay = document.getElementById('modalOverlay');
+        const modalTitle = document.getElementById('modalTitle');
+        const modalBody = document.getElementById('modalBody');
+
+        function openModal(mod) {
+            modalTitle.innerText = mod.title;
+            modalBody.innerHTML = '';
+
+            mod.links.forEach(link => {
+                if(link.isHeader) {
+                    const h = document.createElement('div');
+                    h.className = 'section-title';
+                    h.innerText = link.name;
+                    modalBody.appendChild(h);
+                } else {
+                    const a = document.createElement('a');
+                    a.href = link.url;
+                    a.target = "_blank";
+                    a.className = 'link-item';
+                    a.innerHTML = `<i class="fas fa-external-link-alt" style="margin-right:8px; font-size:0.8em"></i> ${link.name}`;
+                    modalBody.appendChild(a);
+                }
+            });
+
+            modalOverlay.style.display = 'flex';
+            setTimeout(() => modalOverlay.classList.add('active'), 10);
+        }
+
+        function closeModalDirect() {
+            modalOverlay.classList.remove('active');
+            setTimeout(() => modalOverlay.style.display = 'none', 300);
+        }
+
+        function closeModal(e) {
+            if(e.target === modalOverlay) closeModalDirect();
+        }
+
+        // Iniciar
+        init();
+
+    </script>
+</body>
+</html>
