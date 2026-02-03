@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Asistente IA con Voz</title>
+  
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    body { font-family: 'Inter', sans-serif; background-color: #f1f5f9; }
+    .custom-scrollbar::-webkit-scrollbar { width: 5px; height: 5px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+    
+    .chat-bubble-ai { background: white; border: 1px solid #e2e8f0; border-radius: 2px 18px 18px 18px; }
+    .chat-bubble-user { background: #4f46e5; color: white; border-radius: 18px 18px 2px 18px; }
+    
+    .sidebar-item { transition: all 0.2s; border: 1px solid transparent; }
+    .sidebar-item:hover { border-color: #e2e8f0; background: white; }
+    
+    .modal-overlay { background-color: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); }
+    .history-item { cursor: pointer; transition: all 0.2s; }
+    .history-item:hover { transform: translateY(-2px); box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
+
+    .pop-in { animation: popIn 0.2s ease-out forwards; }
+    @keyframes popIn {
+      from { transform: scale(0.95); opacity: 0; }
+      to { transform: scale(1); opacity: 1; }
+    }
+    
+    .listening-pulse { animation: pulse-red 1.5s infinite; }
+    @keyframes pulse-red {
+      0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+      70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    const CONFIG = {
+      GROQ_API_KEY: "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",
+      FIREBASE: {
+        apiKey: "AIzaSyDZxrdfRNjwVirb9f_CHVI1X3InV7Y51YU",
+        authDomain: "asistente-ia-6.firebaseapp.com",
+        projectId: "asistente-ia-6",
+        storageBucket: "asistente-ia-6.firebasestorage.app",
+        messagingSenderId: "837319726160",
+        appId: "1:837319726160:web:2a8d430d14a6f59b8cad55"
+      }
+    };
+
+    if (!firebase.apps.length) {
+      firebase.initializeApp(CONFIG.FIREBASE);
+    }
+    const db = firebase.firestore();
+
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+    const App = () => {
+      const [messages, setMessages] = useState([]);
+      const [input, setInput] = useState('');
+      const [docs, setDocs] = useState([]);
+      const [history, setHistory] = useState([]);
+      const [loading, setLoading] = useState(false);
+      const [isListening, setIsListening] = useState(false); 
+      const [isSpeaking, setIsSpeaking] = useState(false);   
+      
+      const [showInfoModal, setShowInfoModal] = useState(true);
+      const [showHistoryModal, setShowHistoryModal] = useState(false);
+      const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+      const [alertConfig, setAlertConfig] = useState({ isOpen: false, type: null, data: null });
+      
+      const chatEndRef = useRef(null);
+
+      useEffect(() => {
+        const loadVoices = () => { window.speechSynthesis.getVoices(); };
+        loadVoices();
+        window.speechSynthesis.onvoiceschanged = loadVoices;
+      }, []);
+
+      useEffect(() => {
+        chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }, [messages]);
+
+      const handleEditMessage = (index, newText) => {
+        const updatedMessages = [...messages];
+        updatedMessages[index].text = newText;
+        setMessages(updatedMessages);
+      };
+
+      const format24h = (timestamp) => {
+        if (!timestamp) return "Reciente";
+        const date = timestamp.toDate();
+        return date.toLocaleString('es-ES', {
+          hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit'
+        });
+      };
+
+      const handleListen = () => {
+        const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!Recognition) {
+          alert("Tu navegador no soporta entrada de voz.");
+          return;
+        }
+        const recognition = new Recognition();
+        recognition.lang = 'es-ES';
+        recognition.onstart = () => { setIsListening(true); setLoading(true); };
+        recognition.onresult = (event) => {
+          setInput(event.results[0][0].transcript);
+          setIsListening(false);
+          setLoading(false);
+        };
+        recognition.onerror = () => { setIsListening(false); setLoading(false); };
+        recognition.onend = () => { setIsListening(false); setLoading(false); };
+        recognition.start();
+      };
+
+      const handleSpeak = (text, elementId = null) => {
+        window.speechSynthesis.cancel(); 
+        if (isSpeaking) { setIsSpeaking(false); return; }
+        let textToRead = text;
+        if (elementId) {
+          const textarea = document.getElementById(elementId);
+          if (textarea && textarea.selectionStart !== null && textarea.selectionStart > 0) {
+             const startPos = textarea.selectionStart;
+             if (startPos < text.length) textToRead = text.substring(startPos);
+          }
+        }
+        const cleanText = textToRead.replace(/[*#_`~>]/g, '').replace(/\n/g, '. ');
+        if (!cleanText.trim()) return; 
+        const utterance = new SpeechSynthesisUtterance(cleanText);
+        const voices = window.speechSynthesis.getVoices();
+        const maleVoice = voices.find(v => v.lang.startsWith('es') && (v.name.includes('Pablo') || v.name.includes('Jorge') || v.name.includes('Juan') || v.name.includes('Enrique') || v.name.includes('Microsoft') || v.name.toLowerCase().includes('male')));
+        utterance.voice = maleVoice || voices.find(v => v.lang.startsWith('es'));
+        utterance.rate = 1.0; utterance.pitch = 0.9;
+        utterance.onstart = () => setIsSpeaking(true);
+        utterance.onend = () => setIsSpeaking(false);
+        window.speechSynthesis.speak(utterance);
+      };
+
+      const fetchHistory = async () => {
+        setLoading(true);
+        if (mobileMenuOpen) setMobileMenuOpen(false);
+        try {
+          const snapshot = await db.collection('consultas').orderBy('timestamp', 'desc').limit(30).get();
+          const logs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          setHistory(logs);
+          setShowHistoryModal(true);
+        } catch (e) { console.error(e); } finally { setLoading(false); }
+      };
+
+      const saveLog = async (question, answer) => {
+        try {
+          const docRef = await db.collection('consultas').add({
+            pregunta: question, respuesta: answer, timestamp: firebase.firestore.FieldValue.serverTimestamp(), archivos: docs.map(d => d.name)
+          });
+          return docRef.id;
+        } catch (e) { console.error(e); return null; }
+      };
+
+      const handleUpdateLog = async (id, newText) => {
+        if (!id) return;
+        try {
+           await db.collection('consultas').doc(id).update({ respuesta: newText });
+           const btn = document.getElementById(`save-btn-${id}`);
+           if(btn) { btn.classList.add('text-green-500'); setTimeout(() => btn.classList.remove('text-green-500'), 2000); }
+        } catch (e) { alert("Error al guardar cambios: " + e.message); }
+      };
+
+      const loadConsultation = (log) => {
+        setMessages([{ role: 'user', text: log.pregunta }, { role: 'assistant', text: log.respuesta, id: log.id }]);
+        setShowHistoryModal(false);
+      };
+
+      const triggerClearChat = () => {
+        if (messages.length === 0) return;
+        setAlertConfig({ isOpen: true, type: 'clear', data: null });
+      };
+
+      const triggerDeleteConsultation = (e, id) => {
+        e.stopPropagation();
+        setAlertConfig({ isOpen: true, type: 'delete', data: id });
+      };
+
+      const confirmAlertAction = async () => {
+        const { type, data } = alertConfig;
+        if (type === 'clear') {
+          setMessages([]);
+          setInput('');
+          window.speechSynthesis.cancel();
+        } else if (type === 'delete') {
+          try {
+            await db.collection('consultas').doc(data).delete();
+            setHistory(prev => prev.filter(item => item.id !== data));
+          } catch (err) { alert(err.message); }
+        }
+        setAlertConfig({ isOpen: false, type: null, data: null });
+      };
+
+      const handleUpload = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        setLoading(true);
+        if (mobileMenuOpen) setMobileMenuOpen(false);
+        try {
+          let text = "";
+          if (file.type === "application/pdf") {
+            const arrayBuffer = await file.arrayBuffer();
+            const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+            for (let i = 1; i <= pdf.numPages; i++) {
+              const page = await pdf.getPage(i);
+              const content = await page.getTextContent();
+              text += content.items.map(item => item.str).join(" ") + "\n";
+            }
+          } else if (file.name.endsWith(".docx")) {
+            const arrayBuffer = await file.arrayBuffer();
+            const result = await mammoth.extractRawText({ arrayBuffer });
+            text = result.value;
+          } else { text = await file.text(); }
+          setDocs(prev => [...prev, { name: file.name, content: text }]);
+        } catch (err) { alert(err.message); } finally { setLoading(false); }
+      };
+
+      const handleSend = async () => {
+        if (!input.trim() || !CONFIG.GROQ_API_KEY) return;
+        const userMsg = input; setInput('');
+        setMessages(prev => [...prev, { role: 'user', text: userMsg }]);
+        setLoading(true);
+        try {
+          const context = docs.map(d => `[DOC: ${d.name}]\n${d.content.substring(0, 10000)}`).join("\n\n");
+          const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+            method: "POST",
+            headers: { "Authorization": `Bearer ${CONFIG.GROQ_API_KEY}`, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              model: "llama-3.1-8b-instant",
+              messages: [
+                { role: "system", content: "Eres un analista experto. Responde siempre en texto plano, NO uses Markdown, no uses asteriscos (*), ni negritas, ni símbolos especiales.\n" + context },
+                { role: "user", content: userMsg }
+              ],
+              temperature: 0.5
+            })
+          });
+          const data = await response.json();
+          const aiRes = data.choices[0].message.content;
+          const docId = await saveLog(userMsg, aiRes);
+          setMessages(prev => [...prev, { role: 'assistant', text: aiRes, id: docId }]);
+        } catch (err) { setMessages(prev => [...prev, { role: 'assistant', text: "❌ Error: " + err.message }]);
+        } finally { setLoading(false); }
+      };
+
+      const SidebarContent = () => (
+        <div className="flex flex-col h-full">
+          <div className="mb-6 md:mb-8">
+            <h1 className="text-xl font-bold text-indigo-600 flex items-center gap-2">Asistente IA-texto/voz</h1>
+            <p className="text-[10px] text-slate-400 font-bold uppercase mt-1 tracking-widest leading-tight">Defensoría Civil y Comercial 6 Ministerio Público Misiones</p>
+          </div>
+          <label className="mb-4 cursor-pointer group block">
+            <div className="bg-white border-2 border-dashed border-slate-200 p-4 rounded-2xl text-center group-hover:border-indigo-400 group-hover:bg-indigo-50 transition-all">
+              <i className="fa-solid fa-file-arrow-up text-slate-300 group-hover:text-indigo-500 text-xl mb-2"></i>
+              <p className="text-xs font-bold text-slate-500">Subir Documento</p>
+            </div>
+            <input type="file" className="hidden" onChange={handleUpload} accept=".pdf,.txt,.docx" />
+          </label>
+          <button onClick={fetchHistory} className="w-full mb-6 flex items-center justify-center gap-2 p-3 rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 transition-all text-xs font-bold shadow-sm">
+            <i className="fa-solid fa-database text-indigo-400"></i> Ver Historial
+          </button>
+          <div className="flex-1 overflow-y-auto custom-scrollbar min-h-[100px]">
+            <p className="text-[10px] font-bold text-slate-400 uppercase mb-2">Documentos cargados</p>
+            {docs.map((d, i) => (
+              <div key={i} className="sidebar-item p-3 rounded-xl flex items-center gap-3 mb-2 shadow-sm bg-white/50">
+                <i className="fa-solid fa-file-lines text-indigo-400 text-sm"></i>
+                <span className="text-xs font-medium text-slate-600 truncate">{d.name}</span>
+              </div>
+            ))}
+          </div>
+          <div className="mt-auto pt-4 border-t border-slate-200 text-[10px] text-slate-400 flex justify-between items-center">
+            <span>Firebase: ON</span><i className="fa-solid fa-circle text-green-500"></i>
+          </div>
+        </div>
+      );
+
+      return (
+        <div className="flex h-[100dvh] w-full overflow-hidden relative">
+          
+          {/* SIDEBAR MÓVIL (DRAWER) */}
+          <div className={`fixed inset-0 z-[150] md:hidden transition-opacity duration-300 ${mobileMenuOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
+            <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setMobileMenuOpen(false)}></div>
+            <div className={`absolute inset-y-0 left-0 w-72 bg-slate-50 p-6 shadow-2xl transition-transform duration-300 transform ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+              <button onClick={() => setMobileMenuOpen(false)} className="absolute top-4 right-4 text-slate-400"><i className="fa-solid fa-xmark text-xl"></i></button>
+              <SidebarContent />
+            </div>
+          </div>
+
+          {alertConfig.isOpen && (
+            <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 modal-overlay" onClick={() => setAlertConfig({ isOpen: false, type: null, data: null })}>
+              <div className="bg-white rounded-2xl p-6 max-w-[320px] w-full shadow-2xl border border-slate-100 pop-in text-center" onClick={(e) => e.stopPropagation()}>
+                <div className="w-12 h-12 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <i className="fa-solid fa-triangle-exclamation text-xl"></i>
+                </div>
+                <h3 className="text-lg font-bold text-slate-800 mb-2">{alertConfig.type === 'clear' ? '¿Limpiar chat?' : '¿Eliminar registro?'}</h3>
+                <p className="text-sm text-slate-500 mb-6">{alertConfig.type === 'clear' ? 'Se borrarán todos los mensajes de la pantalla actual.' : 'Esta acción no se puede deshacer.'}</p>
+                <div className="flex gap-3">
+                  <button onClick={() => setAlertConfig({ isOpen: false, type: null, data: null })} className="flex-1 px-4 py-2.5 bg-slate-100 text-slate-600 rounded-xl text-sm font-bold transition-all">Cancelar</button>
+                  <button onClick={confirmAlertAction} className="flex-1 px-4 py-2.5 bg-red-500 text-white rounded-xl text-sm font-bold transition-all shadow-lg shadow-red-100">Confirmar</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {showInfoModal && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 modal-overlay" onClick={() => setShowInfoModal(false)}>
+              <div className="bg-white rounded-3xl p-6 md:p-8 max-w-md w-full shadow-2xl border border-slate-100 pop-in" onClick={(e) => e.stopPropagation()}>
+                <h3 className="text-lg md:text-xl font-bold text-slate-800 mb-3">Asistente de Inteligencia Artificial (IA) por texto/voz</h3>
+                <p className="text-sm text-slate-600 mb-6">Sube documentos para analizarlos. Puedes editar las respuestas y escucharlas con voz.</p>
+                <button onClick={() => setShowInfoModal(false)} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 rounded-xl transition-all shadow-lg">Comenzar</button>
+              </div>
+            </div>
+          )}
+
+          {showHistoryModal && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 modal-overlay" onClick={() => setShowHistoryModal(false)}>
+              <div className="bg-white rounded-3xl p-4 md:p-6 max-w-4xl w-full max-h-[85vh] overflow-hidden flex flex-col shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                <div className="flex justify-between items-center mb-4 md:mb-6">
+                  <h3 className="text-lg md:text-xl font-bold text-slate-800 flex items-center gap-2"><i className="fa-solid fa-clock-rotate-left text-indigo-500"></i> Historial</h3>
+                  <button onClick={() => setShowHistoryModal(false)} className="text-slate-400 hover:text-slate-600 bg-slate-100 p-2 rounded-full w-8 h-8 flex items-center justify-center"><i className="fa-solid fa-xmark"></i></button>
+                </div>
+                <div className="flex-1 overflow-y-auto custom-scrollbar space-y-4 pr-1">
+                  {history.map((log) => (
+                    <div key={log.id} onClick={() => loadConsultation(log)} className="history-item p-4 rounded-2xl bg-slate-50 border border-slate-100 hover:border-indigo-200 relative">
+                      <div className="flex justify-between items-start mb-2">
+                        <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-1 rounded-md">{format24h(log.timestamp)}</span>
+                        <button onClick={(e) => triggerDeleteConsultation(e, log.id)} className="w-6 h-6 flex items-center justify-center rounded-full bg-red-100 text-red-500 hover:bg-red-500 hover:text-white transition-all"><i className="fa-solid fa-trash text-xs"></i></button>
+                      </div>
+                      <p className="text-sm font-semibold text-slate-700 line-clamp-2">P: {log.pregunta}</p>
+                      <p className="text-xs text-slate-500 line-clamp-2 mt-1">R: {log.respuesta}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          <aside className="w-72 bg-slate-50 border-r border-slate-200 flex-col p-6 hidden md:flex"><SidebarContent /></aside>
+          
+          <main className="flex-1 flex flex-col bg-white w-full relative">
+            <header className="h-16 border-b flex items-center px-4 md:px-8 justify-between bg-white/80 backdrop-blur-md sticky top-0 z-40">
+              <div className="flex items-center gap-3">
+                <button onClick={() => setMobileMenuOpen(true)} className="md:hidden text-slate-500 hover:bg-slate-100 p-2 rounded-lg"><i className="fa-solid fa-bars text-xl"></i></button>
+                <span className="text-xs font-bold text-slate-600 uppercase">Asistente IA</span>
+              </div>
+              {messages.length > 0 && <button onClick={triggerClearChat} className="flex items-center gap-2 text-xs font-bold text-slate-500 hover:text-red-500 transition-colors px-3 py-1.5 rounded-lg hover:bg-red-50"><i className="fa-solid fa-eraser"></i><span className="hidden sm:inline">Nueva Consulta</span></button>}
+            </header>
+
+            <div className="flex-1 overflow-y-auto p-4 md:p-12 space-y-8 custom-scrollbar pb-32">
+              {messages.map((m, i) => (
+                <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`relative p-3 md:p-4 shadow-sm text-sm leading-relaxed ${m.role === 'user' ? 'max-w-[85%] md:max-w-[70%] chat-bubble-user' : 'w-full chat-bubble-ai'}`}>
+                    {m.role === 'assistant' ? (
+                      <textarea id={`msg-${i}`} value={m.text} onChange={(e) => handleEditMessage(i, e.target.value)} className="w-full bg-transparent border-none outline-none resize-none font-inherit text-slate-700" style={{ height: `${Math.max(60, m.text.length / 1.5)}px` }} spellCheck="false" />
+                    ) : (<span>{m.text}</span>)}
+                    {m.role === 'assistant' && (
+                       <div className="absolute -bottom-6 left-0 flex gap-3">
+                          <button onClick={() => handleSpeak(m.text, `msg-${i}`)} className="text-indigo-500 bg-white border border-indigo-100 rounded-full w-7 h-7 flex items-center justify-center shadow-md z-10"><i className={`fa-solid ${isSpeaking ? 'fa-stop' : 'fa-volume-high'} text-[11px]`}></i></button>
+                          {m.id && (
+                            <button onClick={() => handleUpdateLog(m.id, m.text)} className="text-slate-400 hover:text-indigo-600 bg-white border border-slate-100 rounded-full w-7 h-7 flex items-center justify-center shadow-md z-10"><i id={`save-btn-${m.id}`} className="fa-solid fa-floppy-disk text-[11px]"></i></button>
+                          )}
+                       </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {loading && !isListening && <div className="text-[10px] font-bold text-slate-400 uppercase">Procesando...</div>}
+              <div ref={chatEndRef}></div>
+            </div>
+
+            <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-white via-white to-transparent pb-6 md:pb-8">
+              <div className="max-w-4xl mx-auto flex gap-2 items-center bg-white border border-slate-200 p-2 rounded-2xl shadow-xl">
+                <button onClick={handleListen} disabled={loading} className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 transition-all ${isListening ? 'bg-red-500 text-white listening-pulse' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}><i className={`fa-solid ${isListening ? 'fa-microphone-slash' : 'fa-microphone'}`}></i></button>
+                <input className="flex-1 bg-transparent px-2 py-3 text-sm outline-none" value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSend()} placeholder={docs.length === 0 ? "Primero sube un archivo..." : (isListening ? "Escuchando..." : "Pregunta o dicta...")} disabled={!docs.length || loading} />
+                <button onClick={handleSend} disabled={!input.trim() || loading || !docs.length} className="bg-indigo-600 hover:bg-indigo-700 text-white w-12 h-12 rounded-xl shadow-lg flex items-center justify-center shrink-0 disabled:opacity-30"><i className="fa-solid fa-paper-plane"></i></button>
+              </div>
+            </div>
+          </main>
+        </div>
+      );
+    };
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>
